@@ -1,0 +1,159 @@
+name: CI Pipeline
+on:
+  push:
+    paths-ignore:
+      - README.md
+    branches:
+      - '**'
+    tags-ignore:
+      - build-refs**
+  pull_request:
+
+env:
+  HUB_VERSION: 2.12.7
+  HUB_OS: darwin
+  HUB_ARCH: amd64
+
+jobs:
+  release-name:
+    name: Generate a release name to use
+    runs-on: ubuntu-latest
+    env:
+      HUB_OS: linux
+    steps:
+      - uses: actions/checkout@v2.3.4
+        if: github.event_name == 'push'
+      - run: echo $GITHUB_REF | sed -e 's/^refs\///g' -e 's/^tags\///g' > VERSION
+      - uses: actions/upload-artifact@v2.2.3
+        with:
+          name: VERSION
+          path: VERSION
+      - name: fetch hub
+        if: github.event_name == 'push'
+        run: wget -q -c https://github.com/github/hub/releases/download/v${HUB_VERSION}/hub-${HUB_OS}-${HUB_ARCH}-${HUB_VERSION}.tgz -O - | tar -xz
+      - name: create pre-release if it doesn't exist
+        if: github.event_name == 'push'
+        run: hub-${HUB_OS}-${HUB_ARCH}-${HUB_VERSION}/bin/hub release create -p -m "Latest build of ${{github.ref}}" "$(cat VERSION)" || echo release already exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  golangci-lint:
+    name: GolangCI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2.3.4
+      - uses: docker://golangci/golangci-lint
+        with:
+          args: golangci-lint run --color=always
+
+  test-build-publish:
+    name: Test and Build
+    runs-on: macOS-latest
+    needs: release-name
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        OS:
+          - darwin
+          - linux
+          - windows
+          - netbsd
+          - freebsd
+          - openbsd
+          - plan9
+          - solaris
+        ARCH:
+          - amd64
+          - 386
+          - arm64
+          - arm
+        include:
+          - OS: windows
+            EXT: .exe
+        exclude:
+          - OS: darwin
+            ARCH: arm64
+          - OS: darwin
+            ARCH: arm
+          - OS: windows
+            ARCH: arm64
+          - OS: freebsd
+            ARCH: arm64
+          - OS: plan9
+            ARCH: arm64
+          - OS: solaris
+            ARCH: arm64
+          - OS: solaris
+            ARCH: arm
+          - OS: solaris
+            ARCH: 386
+    env:
+      BUILD_FILENAME: single-paparazzogo-${{matrix.OS}}-${{matrix.ARCH}}${{matrix.EXT}}
+      ZIP_FILENAME: single-paparazzogo-${{matrix.OS}}-${{matrix.ARCH}}.zip
+    steps:
+      - uses: actions/checkout@v2.3.4
+      - run: go test -v
+      - uses: actions/download-artifact@v2.0.9
+        with:
+          name: VERSION
+      - run: go build -a -ldflags "-X main.VERSION=$(cat VERSION/VERSION)" -o ${BUILD_FILENAME}
+        env:
+          GOOS: ${{matrix.OS}}
+          GOARCH: ${{matrix.ARCH}}
+      - run: chmod +x ${BUILD_FILENAME}
+        env:
+          GOOS: ${{matrix.OS}}
+          GOARCH: ${{matrix.ARCH}}
+      - uses: actions/upload-artifact@v2.2.3
+        with:
+          name: single-paparazzogo-${{matrix.OS}}-${{matrix.ARCH}}${{matrix.EXT}}
+          path: single-paparazzogo-${{matrix.OS}}-${{matrix.ARCH}}${{matrix.EXT}}
+      - uses: actions/download-artifact@v2.0.9
+        with:
+          name: VERSION
+      - run: zip single-paparazzogo-${{matrix.OS}}-${{matrix.ARCH}}.zip ${BUILD_FILENAME} LICENSE
+      - name: fetch hub
+        if: github.event_name == 'push'
+        run: wget -q -c https://github.com/github/hub/releases/download/v${HUB_VERSION}/hub-${HUB_OS}-${HUB_ARCH}-${HUB_VERSION}.tgz -O - | tar -xz
+      - name: Publish to release
+        if: github.event_name == 'push'
+        run: |
+          hub-${HUB_OS}-${HUB_ARCH}-${HUB_VERSION}/bin/hub release edit -a ${ZIP_FILENAME} -m "Latest build of ${{github.ref}}" "$(cat VERSION/VERSION)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2.3.4
+      - uses: docker/setup-buildx-action@v1.3.0
+      - uses: docker/setup-qemu-action@v1.2.0
+
+      - name: Login to GitHub
+        if: github.ref == 'refs/heads/master'
+        uses: docker/login-action@v1.9.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: docker_meta
+        uses: docker/metadata-action@v3.3.0
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=true
+          tags: |
+            type=sha,format=long
+            type=edge,branch=$repo.default_branch
+
+      - name: build+push
+        uses: docker/build-push-action@v2.5.0
+        with:
+          platforms: linux/arm64,linux/amd64
+          push: ${{ github.ref == 'refs/heads/master' }}
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
