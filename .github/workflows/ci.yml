@@ -135,7 +135,7 @@ jobs:
 
       - name: Login to github docker repo
         if: github.ref == 'refs/heads/master'
-        uses: docker/login-action@v1.9.0
+        uses: docker/login-action@v1.10.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
