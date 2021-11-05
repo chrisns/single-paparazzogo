@@ -1,4 +1,4 @@
-FROM golang:1.17.2 as build
+FROM golang:1.17.3 as build
 WORKDIR /app
 COPY go.* *.go .
 RUN CGO_ENABLED=0 go build -a -tags netgo -ldflags '-w -extldflags "-static"' *.go
