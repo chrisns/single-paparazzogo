@@ -1,4 +1,4 @@
-FROM golang:1.21.5@sha256:bf8f707408dac7cab1574de53f1bdaa1e84e6897286b87e65ff843446af22927 as build
+FROM golang:1.21.5@sha256:ae34fbf671566a533f92e5469f3f3d34e9e6fb14c826db09956454da9a84c9a9 as build
 WORKDIR /app
 COPY go.* *.go .
 RUN CGO_ENABLED=0 go build -a -tags netgo -ldflags '-w -extldflags "-static"' *.go
