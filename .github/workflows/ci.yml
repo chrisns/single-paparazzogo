@@ -19,6 +19,6 @@ jobs:
 
   docker:
     needs: lint
-    uses: chrisns/.github/.github/workflows/dockerbuild.yml@316c1b09e092b54ba19b04fa1076713918f69df1 # main
+    uses: chrisns/.github/.github/workflows/dockerbuild.yml@b9e105da85427af81e857776c06babfca1c8bd33 # main
     with:
       platforms: linux/arm64,linux/amd64,linux/arm/v7
